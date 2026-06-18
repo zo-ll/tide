@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"strconv"
 	"strings"
+	"syscall"
 )
 
 type Size struct {
@@ -21,6 +23,8 @@ type Terminal struct {
 	alt       bool
 	mouse     bool
 	altScroll bool
+	size      Size
+	hasSize   bool
 }
 
 func Open(in *os.File, out io.Writer) (*Terminal, error) {
@@ -30,7 +34,9 @@ func Open(in *os.File, out io.Writer) (*Terminal, error) {
 	if out == nil {
 		return nil, fmt.Errorf("nil output terminal")
 	}
-	return &Terminal{In: in, Out: out}, nil
+	t := &Terminal{In: in, Out: out}
+	t.refreshSize()
+	return t, nil
 }
 
 func (t *Terminal) Close() error {
@@ -154,7 +160,9 @@ func (t *Terminal) DisableAltScroll() error {
 	return err
 }
 
-func (t *Terminal) Size() Size {
+// refreshSize queries the terminal size via stty and caches it. Call on Open
+// and on SIGWINCH; Size() returns the cached value without spawning a process.
+func (t *Terminal) refreshSize() {
 	cols := terminalWidth(t.In)
 	rows := 24
 	if out, err := sttyCapture(t.In, "size"); err == nil {
@@ -168,11 +176,52 @@ func (t *Terminal) Size() Size {
 			}
 		}
 	}
-	return Size{Rows: rows, Cols: cols}
+	if cols <= 0 {
+		cols = 80
+	}
+	if rows <= 0 {
+		rows = 24
+	}
+	t.size = Size{Rows: rows, Cols: cols}
+	t.hasSize = true
+}
+
+func (t *Terminal) Size() Size {
+	if t.hasSize {
+		return t.size
+	}
+	t.refreshSize()
+	return t.size
 }
 
 func (t *Terminal) NewEditor(prompt string, complete Completer) *Editor {
 	return New(t.In, t.Out, prompt, complete)
+}
+
+// WatchResize refreshes the cached terminal size on SIGWINCH and calls redraw
+// (which may be nil) after each update. Returns a stop function. This keeps
+// Size() cheap (no per-render stty subprocess) while staying correct on resize.
+func (t *Terminal) WatchResize(redraw func()) func() {
+	ch := make(chan os.Signal, 1)
+	done := make(chan struct{})
+	signal.Notify(ch, syscall.SIGWINCH)
+	go func() {
+		for {
+			select {
+			case <-ch:
+				t.refreshSize()
+				if redraw != nil {
+					redraw()
+				}
+			case <-done:
+				return
+			}
+		}
+	}()
+	return func() {
+		signal.Stop(ch)
+		close(done)
+	}
 }
 
 func HideCursor(w io.Writer)           { _, _ = io.WriteString(w, "\x1b[?25l") }
