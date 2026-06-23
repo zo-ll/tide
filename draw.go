@@ -1,3 +1,6 @@
+// Package tide (continued) — drawing helpers for fullscreen TUI apps.
+// WriteClipped, DrawBox, WrapPlain, HeaderLine, and MoveTo are the
+// primitives that higher-level widgets (Picker, Prompt, Viewport) use.
 package tide
 
 import (

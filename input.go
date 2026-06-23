@@ -1,3 +1,7 @@
+// Package tide — async terminal input. Input is a channel-based byte
+// reader for use in select-style event loops. ReadEscape normalises
+// escape sequences (arrows, home/end, page keys, SGR mouse) into a typed
+// EscapeKind so callers don't need to parse raw bytes.
 package tide
 
 import (

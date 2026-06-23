@@ -1,5 +1,12 @@
+// Package tide (continued) — scrollable content window. Viewport holds
+// a list of visual lines, a visible height, and a scroll offset with
+// clamping. It represents one widget's scroll state (e.g. the transcript
+// area in oi).
 package tide
 
+// Viewport is a bounded window over a list of visual lines. It tracks
+// the current scroll offset and clamps it to valid bounds. The caller is
+// responsible for rendering the visible slice of Lines.
 type Viewport struct {
 	Lines  []string
 	Height int

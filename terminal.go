@@ -1,3 +1,13 @@
+// Package tide is a minimal async terminal toolkit for fullscreen TUI apps.
+//
+// It provides Terminal (raw/alt/mouse mode, size cache + SIGWINCH),
+// Input (channel-based byte reader), ReadEscape/EscapeKind (arrow + SGR
+// mouse parsing), draw helpers (WriteClipped, DrawBox, WrapPlain,
+// HeaderLine), widgets (Overlay, Picker, Prompt), and Viewport (scroll
+// window with clamping).
+//
+// tide is not a framework, not a line editor, and has no app scaffold.
+// Its only consumer is oi.
 package tide
 
 import (
