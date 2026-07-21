@@ -16,7 +16,11 @@ belong in the app; tide stays the small terminal surface underneath.
 
 - **Terminal** — raw mode, alternate screen, SGR mouse enable/disable, cached
   size refreshed on `SIGWINCH` via `WatchResize`, cursor + style helpers
-  (`HideCursor`/`ShowCursor`/`MoveTo`/`ClearLine`/`Dim`/`Warn`/`Command`)
+  (`HideCursor`/`ShowCursor`/`MoveTo`/`ClearLine`/`Dim`/`Warn`/`Command`).
+  Terminal control uses direct `syscall` ioctls on Linux and an `stty`
+  fallback elsewhere (build-tagged, no external deps)
+- **Style helpers** — synchronized (tear-free) output with `BeginSync`/`EndSync`,
+  8-color `SetFg`/`SetBg`/`ResetAttr`, and OSC-8 `Hyperlink` for clickable links
 - **Input** — goroutine + channel byte reader for async loops that select on
   input alongside other event sources (the channel-friendly counterpart to a
   blocking `f.Read`)
@@ -26,7 +30,8 @@ belong in the app; tide stays the small terminal surface underneath.
   write), `DrawBox` (titled bordered modal frame), `WrapPlain` (paragraph-aware
   wrap), `HeaderLine` (two-column status/help row)
 - **Widgets** — `Overlay` (the surface widgets draw on), `Picker` (searchable
-  scrollable list modal), `Prompt` (single-line text input modal)
+  scrollable list modal), `Prompt` (single-line text input modal), `Confirm`
+  (yes/no dialog), and `Spinner` (caller-driven braille progress indicator)
 - **Viewport** — scrollback window with `Scroll` / `Bottom` / `Visible`
 - **Text engine** — `DisplayWidth` and `Wrap` honoring combining marks and
   East-Asian wide/fullwidth runes
@@ -74,7 +79,7 @@ tide is deliberately not:
 ## Status
 
 Small, stable core. One real consumer: [`oi`](https://github.com/zo-ll/oi).
-`Picker`/`Prompt` are live-tested but not yet unit-tested with a byte harness.
+`Picker`/`Prompt`/`Confirm` are covered by a scripted byte-source test harness.
 
 ## License
 

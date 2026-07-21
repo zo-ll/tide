@@ -162,6 +162,90 @@ func (p *Picker) render(title, query string, items []string, idx int) {
 	}
 }
 
+// Confirm renders a yes/no dialog with the given prompt and blocks until the
+// user answers. It returns true only when the user confirms (selects Yes and
+// presses Enter, or presses y); it returns false on No, Escape, Ctrl-C, or an
+// empty prompt. A byte-source error is returned with false. Tab and the arrow
+// keys switch the selection, which defaults to No.
+func (ov Overlay) Confirm(prompt string) (bool, error) {
+	if prompt == "" {
+		return false, nil
+	}
+	yes := false
+	for {
+		ov.confirmRender(prompt, yes)
+		b, err := ov.Next()
+		if err != nil {
+			ov.repaintBase()
+			return false, err
+		}
+		switch b {
+		case 3: // Ctrl-C
+			ov.repaintBase()
+			return false, nil
+		case '\t':
+			yes = !yes
+		case 27:
+			kind, _, _ := ReadEscape(ov.Next)
+			switch kind {
+			case EscLeft, EscRight, EscUp, EscDown:
+				yes = !yes
+			default:
+				ov.repaintBase()
+				return false, nil
+			}
+		case '\r', '\n':
+			ov.repaintBase()
+			return yes, nil
+		case 'y', 'Y':
+			ov.repaintBase()
+			return true, nil
+		case 'n', 'N':
+			ov.repaintBase()
+			return false, nil
+		}
+	}
+}
+
+func (ov Overlay) repaintBase() {
+	if ov.Base != nil {
+		ov.Base()
+	}
+}
+
+func (ov Overlay) confirmRender(prompt string, yes bool) {
+	if ov.Base != nil {
+		ov.Base()
+	}
+	size := ov.Size()
+	width := size.Cols - 8
+	if width > 80 {
+		width = 80
+	}
+	if width < 32 {
+		width = 32
+	}
+	height := 6
+	top := (size.Rows - height) / 2
+	left := (size.Cols - width) / 2
+	if top < 1 {
+		top = 1
+	}
+	if left < 1 {
+		left = 1
+	}
+	DrawBox(ov.Out, top, left, width, height, "Confirm")
+	WriteClipped(ov.Out, top+2, left, width, "| "+prompt)
+	yesOpt, noOpt := "  Yes  ", "  No  "
+	if yes {
+		yesOpt = "> Yes  "
+	} else {
+		noOpt = "> No  "
+	}
+	WriteClipped(ov.Out, top+3, left, width, "| "+yesOpt+noOpt)
+	WriteClipped(ov.Out, top+4, left, width, "| Tab switch, Enter confirm, Esc cancel")
+}
+
 // Prompt is a single-line text input modal. Open blocks until the user
 // confirms (returns text, true), cancels (returns "", false), or the byte
 // source errors.

@@ -126,6 +126,57 @@ func TestPromptArrowLeftThenBackspace(t *testing.T) {
 	}
 }
 
+func TestConfirmDefaultsToNoOnEnter(t *testing.T) {
+	// bare Enter -> default selection (No) -> false
+	in := &fakeInput{bytes: []byte{'\r'}}
+	ok, err := newOverlay(in).Confirm("delete?")
+	if err != nil || ok {
+		t.Fatalf("ok = %v err = %v, want false/nil", ok, err)
+	}
+}
+
+func TestConfirmArrowToYesThenEnter(t *testing.T) {
+	// ESC [ C = right -> toggles to Yes, then Enter -> true
+	in := &fakeInput{bytes: []byte{27, '[', 'C', '\r'}}
+	ok, err := newOverlay(in).Confirm("delete?")
+	if err != nil || !ok {
+		t.Fatalf("ok = %v err = %v, want true/nil", ok, err)
+	}
+}
+
+func TestConfirmTabTogglesThenEnter(t *testing.T) {
+	// Tab toggles No->Yes, Enter -> true
+	in := &fakeInput{bytes: []byte{'\t', '\r'}}
+	ok, err := newOverlay(in).Confirm("delete?")
+	if err != nil || !ok {
+		t.Fatalf("ok = %v err = %v, want true/nil", ok, err)
+	}
+}
+
+func TestConfirmCancelOnEscape(t *testing.T) {
+	// bare ESC -> EscCancel -> false
+	in := &fakeInput{bytes: []byte{27, 'x'}}
+	ok, err := newOverlay(in).Confirm("delete?")
+	if err != nil || ok {
+		t.Fatalf("ok = %v err = %v, want false/nil", ok, err)
+	}
+}
+
+func TestConfirmEmptyPromptReturnsFalse(t *testing.T) {
+	ok, err := newOverlay(&fakeInput{}).Confirm("")
+	if err != nil || ok {
+		t.Fatalf("ok = %v err = %v, want false/nil", ok, err)
+	}
+}
+
+func TestConfirmPropagatesInputError(t *testing.T) {
+	// no bytes scripted -> Next returns errEOF -> (false, err)
+	ok, err := newOverlay(&fakeInput{}).Confirm("delete?")
+	if err == nil || ok {
+		t.Fatalf("ok = %v err = %v, want false/err", ok, err)
+	}
+}
+
 func TestDrawBoxEmitsBorders(t *testing.T) {
 	var b strings.Builder
 	DrawBox(&b, 1, 1, 10, 5, "title")
