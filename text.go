@@ -2,16 +2,14 @@ package tide
 
 // This file holds the text measurement and wrapping engine shared by the
 // terminal toolkit (DisplayWidth, Wrap) and the widget renderers, plus the
-// stty subprocess helpers used by Terminal. It is the only surviving logic
+// termios/ioctl helpers used by Terminal. It is the only surviving logic
 // from tide's original line-editor implementation; the Editor itself was
 // removed in favor of the async Overlay/Input/Picker surface.
 
 import (
-	"fmt"
 	"os"
-	"os/exec"
-	"strconv"
-	"strings"
+	"syscall"
+	"unsafe"
 )
 
 func dim(text string) string {
@@ -143,56 +141,53 @@ func trimRightSpaces(runes []rune) []rune {
 	return runes
 }
 
-func terminalWidth(f *os.File) int {
-	out, err := sttyCapture(f, "size")
-	if err == nil {
-		parts := strings.Fields(strings.TrimSpace(out))
-		if len(parts) == 2 {
-			if width, convErr := strconv.Atoi(parts[1]); convErr == nil && width > 0 {
-				return width
-			}
-		}
+// getTermios reads termios for the fd underlying f.
+// Returns nil and no error when f is nil or not a terminal.
+func getTermios(f *os.File) (*syscall.Termios, error) {
+	if f == nil {
+		return nil, nil
 	}
-	return 80
+	var t syscall.Termios
+	_, _, errno := syscall.Syscall(syscall.SYS_IOCTL, f.Fd(),
+		uintptr(syscall.TCGETS), uintptr(unsafe.Pointer(&t)))
+	if errno == syscall.ENOTTY {
+		return nil, nil
+	}
+	if errno != 0 {
+		return nil, errno
+	}
+	return &t, nil
 }
 
-func sttyCapture(f *os.File, args ...string) (string, error) {
-	if f == nil {
-		return "", fmt.Errorf("nil terminal")
+// setTermios writes termios for the fd underlying f.
+func setTermios(f *os.File, state *syscall.Termios) error {
+	if f == nil || state == nil {
+		return nil
 	}
-	name := f.Name()
-	for _, flag := range []string{"-F", "-f"} {
-		cmdArgs := append([]string{flag, name}, args...)
-		cmd := exec.Command("stty", cmdArgs...)
-		cmd.Stdin = f
-		data, err := cmd.Output()
-		if err == nil {
-			return string(data), nil
-		}
+	_, _, errno := syscall.Syscall(syscall.SYS_IOCTL, f.Fd(),
+		uintptr(syscall.TCSETS), uintptr(unsafe.Pointer(state)))
+	if errno == syscall.ENOTTY {
+		return nil
 	}
-	cmd := exec.Command("stty", args...)
-	cmd.Stdin = f
-	data, err := cmd.Output()
-	if err != nil {
-		return "", err
+	if errno != 0 {
+		return errno
 	}
-	return string(data), nil
+	return nil
 }
 
-func sttyRun(f *os.File, args ...string) error {
+// terminalSize queries the terminal size via TIOCGWINSZ ioctl.
+// Returns rows, cols. Falls back to 80x24 on error.
+func terminalSize(f *os.File) (rows, cols int) {
 	if f == nil {
-		return fmt.Errorf("nil terminal")
+		return 24, 80
 	}
-	name := f.Name()
-	for _, flag := range []string{"-F", "-f"} {
-		cmdArgs := append([]string{flag, name}, args...)
-		cmd := exec.Command("stty", cmdArgs...)
-		cmd.Stdin = f
-		if err := cmd.Run(); err == nil {
-			return nil
-		}
+	var ws struct {
+		Row, Col, Xpixel, Ypixel uint16
 	}
-	cmd := exec.Command("stty", args...)
-	cmd.Stdin = f
-	return cmd.Run()
+	_, _, errno := syscall.Syscall(syscall.SYS_IOCTL, f.Fd(),
+		uintptr(syscall.TIOCGWINSZ), uintptr(unsafe.Pointer(&ws)))
+	if errno != 0 || ws.Row == 0 || ws.Col == 0 {
+		return 24, 80
+	}
+	return int(ws.Row), int(ws.Col)
 }

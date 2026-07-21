@@ -15,8 +15,6 @@ import (
 	"io"
 	"os"
 	"os/signal"
-	"strconv"
-	"strings"
 	"syscall"
 )
 
@@ -28,7 +26,7 @@ type Size struct {
 type Terminal struct {
 	In        *os.File
 	Out       io.Writer
-	rawState  string
+	rawState  *syscall.Termios
 	raw       bool
 	alt       bool
 	mouse     bool
@@ -90,14 +88,32 @@ func (t *Terminal) EnterRaw() error {
 	if t.raw {
 		return nil
 	}
-	state, err := sttyCapture(t.In, "-g")
+	state, err := getTermios(t.In)
 	if err != nil {
 		return err
 	}
-	if err := sttyRun(t.In, "raw", "-echo"); err != nil {
+	if state == nil {
+		// Not a terminal; nothing to configure.
+		t.raw = true
+		_, _ = io.WriteString(t.Out, "\x1b[?2004h")
+		return nil
+	}
+	// Save a copy before modifying state in place.
+	saved := *state
+	t.rawState = &saved
+
+	state.Iflag &^= syscall.IGNBRK | syscall.BRKINT | syscall.PARMRK |
+		syscall.ISTRIP | syscall.INLCR | syscall.IGNCR | syscall.ICRNL | syscall.IXON
+	state.Oflag &^= syscall.OPOST
+	state.Lflag &^= syscall.ECHO | syscall.ECHONL | syscall.ICANON | syscall.ISIG | syscall.IEXTEN
+	state.Cflag &^= syscall.CSIZE | syscall.PARENB
+	state.Cflag |= syscall.CS8
+	state.Cc[syscall.VMIN] = 1
+	state.Cc[syscall.VTIME] = 0
+
+	if err := setTermios(t.In, state); err != nil {
 		return err
 	}
-	t.rawState = strings.TrimSpace(state)
 	t.raw = true
 	_, _ = io.WriteString(t.Out, "\x1b[?2004h")
 	return nil
@@ -109,10 +125,10 @@ func (t *Terminal) LeaveRaw() error {
 	}
 	_, _ = io.WriteString(t.Out, "\x1b[?2004l")
 	t.raw = false
-	if t.rawState == "" {
+	if t.rawState == nil {
 		return nil
 	}
-	return sttyRun(t.In, t.rawState)
+	return setTermios(t.In, t.rawState)
 }
 
 func (t *Terminal) EnterAltScreen() error {
@@ -182,22 +198,10 @@ func (t *Terminal) DisableAltScroll() error {
 	return err
 }
 
-// refreshSize queries the terminal size via stty and caches it. Call on Open
-// and on SIGWINCH; Size() returns the cached value without spawning a process.
+// refreshSize queries the terminal size via ioctl and caches it. Call on Open
+// and on SIGWINCH; Size() returns the cached value without a syscall.
 func (t *Terminal) refreshSize() {
-	cols := terminalWidth(t.In)
-	rows := 24
-	if out, err := sttyCapture(t.In, "size"); err == nil {
-		parts := strings.Fields(strings.TrimSpace(out))
-		if len(parts) == 2 {
-			if r, convErr := strconv.Atoi(parts[0]); convErr == nil && r > 0 {
-				rows = r
-			}
-			if c, convErr := strconv.Atoi(parts[1]); convErr == nil && c > 0 {
-				cols = c
-			}
-		}
-	}
+	rows, cols := terminalSize(t.In)
 	if cols <= 0 {
 		cols = 80
 	}
